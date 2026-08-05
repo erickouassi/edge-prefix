@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "routes": [
+  "rewrites": [
     {
-      "src": "/(https?://.*)",
-      "dest": "/api/prefix/$1"
+      "source": "/(https?://.*)",
+      "destination": "/api/prefix/$1"
     },
     {
-      "src": "/",
-      "dest": "/api/prefix"
+      "source": "/",
+      "destination": "/api/prefix"
     }
   ]
 }
