@@ -1,37 +1,34 @@
 export default function handler(req, res) {
-  // On Vercel rewrites, the original path is often in x-forwarded-uri or req.url
-  // Prefer the path after /api/prefix/
-  let raw = req.url || "";
+  // ---------- 1. Get the target URL (prefer query parameter) ----------
+  let target = "";
 
-  // Strip query string for path extraction (we'll re-attach later if needed)
-  const [pathname, search = ""] = raw.split("?");
-  const query = search ? `?${search}` : "";
+  // Preferred & reliable method: ?url=https://example.com
+  if (req.query && req.query.url) {
+    target = Array.isArray(req.query.url) ? req.query.url[0] : String(req.query.url);
+  }
 
-  // Remove /api/prefix (with or without trailing slash)
-  let target = pathname.replace(/^\/api\/prefix\/?/, "");
+  // Fallback: try path (in case someone still uses old style)
+  if (!target) {
+    let raw = req.url || "";
+    const [pathname] = raw.split("?");
+    target = pathname.replace(/^\/api\/prefix\/?/, "").replace(/^\/+/, "");
 
-  // Also handle cases where the rewrite leaves the full original path
-  // (some Vercel versions pass the original URL in headers)
-  if (!target || target === "" || target === "/") {
-    const forwarded = req.headers["x-forwarded-uri"] || req.headers["x-vercel-forwarded-uri"] || "";
-    if (forwarded) {
-      target = forwarded.replace(/^\//, ""); // remove leading /
+    // strip optional "to/" if present
+    if (target.toLowerCase().startsWith("to/")) {
+      target = target.slice(3);
     }
   }
 
-  // Decode once (Vercel may already have decoded parts)
+  // Decode
   try {
     target = decodeURIComponent(target);
   } catch {
-    // keep as-is if already decoded or malformed
+    // already decoded or malformed
   }
 
-  // Clean up any leftover leading slashes
-  target = target.replace(/^\/+/, "");
+  console.log("Incoming:", { url: req.url, query: req.query, target });
 
-  console.log("Incoming:", { url: req.url, target, query });
-
-  // Landing page
+  // ---------- 2. Landing page ----------
   if (!target || target === "" || target === "/") {
     return res.status(200).send(`<!doctype html>
 <html lang="en">
@@ -40,41 +37,64 @@ export default function handler(req, res) {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Edge Prefix Service</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
-    code { background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 4px; word-break: break-all; }
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.55; }
+    code { background: #f4f4f4; padding: 0.2em 0.45em; border-radius: 4px; word-break: break-all; font-size: 0.95em; }
+    .box { background: #f0f7ff; border: 1px solid #cce0ff; border-radius: 8px; padding: 1rem 1.25rem; margin: 1.25rem 0; }
     a { color: #0078d4; }
   </style>
 </head>
 <body>
   <h1>Edge Prefix Service</h1>
-  <p>Prefix any URL with this domain to force it to open in <strong>Microsoft Edge</strong>.</p>
-  <p>Example:</p>
-  <p><code>https://edge-prefix.vercel.app/https://chromewebstore.google.com/detail/phishguard-phishing-warni/dffldhkdhhhloidkgodomiddljpjkncm</code></p>
-  <p>That becomes:</p>
-  <p><code>microsoft-edge:https://chromewebstore.google.com/detail/phishguard-phishing-warni/dffldhkdhhhloidkgodomiddljpjkncm</code></p>
-  <hr />
-  <p>Works on Windows. Other platforms will usually just show a “protocol not supported” prompt.</p>
+  <p>Force any URL to open in <strong>Microsoft Edge</strong> on Windows.</p>
+
+  <div class="box">
+    <strong>Correct usage</strong> (this is the only format that works):
+    <br><br>
+    <code>https://edge-prefix.vercel.app/?url=https://example.com</code>
+  </div>
+
+  <p>Real example for the Chrome Web Store:</p>
+  <p>
+    <code>https://edge-prefix.vercel.app/?url=https://chromewebstore.google.com/detail/dffldhkdhhhloidkgodomiddljpjkncm</code>
+  </p>
+
+  <hr>
+  <p style="font-size:0.9em;opacity:0.75">
+    Why <code>?url=</code>? Vercel automatically rewrites any path containing
+    <code>https://</code> into <code>https:/</code> (one slash). That completely breaks path-based designs.
+    Using a query parameter avoids the problem.
+  </p>
 </body>
 </html>`);
   }
 
-  // Must look like a real URL
+  // ---------- 3. Normalize common broken forms ----------
+  // https:/example.com  →  https://example.com
+  target = target.replace(/^(https?):\/(?!\/)/i, "$1://");
+
+  // //example.com → https://example.com
+  if (target.startsWith("//")) {
+    target = "https:" + target;
+  }
+
+  // example.com → https://example.com
   if (!/^https?:\/\//i.test(target)) {
-    return res.status(400).send(`Invalid target URL. It must start with http:// or https://
+    target = "https://" + target;
+  }
+
+  // Final validation
+  if (!/^https?:\/\/.+/i.test(target)) {
+    return res.status(400).send(`Invalid target URL.
 
 Received: ${target}
 
 Correct usage:
-https://your-domain.vercel.app/https://chromewebstore.google.com/detail/phishguard-phishing-warni/dffldhkdhhhloidkgodomiddljpjkncm`);
+https://edge-prefix.vercel.app/?url=https://example.com`);
   }
 
-  // Re-attach original query string if the target itself didn't already contain one
-  const finalTarget = target.includes("?") ? target : target + query;
+  const edgeUrl = "microsoft-edge:" + target;
 
-  const edgeUrl = "microsoft-edge:" + finalTarget;
-
-  // Important: browsers ignore or block Location: microsoft-edge:... headers.
-  // Serving a tiny HTML page that triggers the protocol is the reliable way.
+  // ---------- 4. Launcher page ----------
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   return res.status(200).send(`<!doctype html>
@@ -84,23 +104,33 @@ https://your-domain.vercel.app/https://chromewebstore.google.com/detail/phishgua
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Opening in Microsoft Edge…</title>
   <style>
-    body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f5f5f5; color: #333; text-align: center; padding: 1rem; }
-    a { color: #0078d4; font-weight: 600; word-break: break-all; }
-    .btn { display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #0078d4; color: white; text-decoration: none; border-radius: 6px; }
+    body {
+      font-family: system-ui, sans-serif;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0;
+      background: #f5f5f5; color: #333; text-align: center; padding: 1rem;
+    }
+    .btn {
+      display: inline-block; margin-top: 1.5rem;
+      padding: 0.85rem 1.75rem; background: #0078d4; color: white;
+      text-decoration: none; border-radius: 6px; font-weight: 600;
+    }
+    .btn:hover { background: #106ebe; }
   </style>
 </head>
 <body>
   <h1>Opening in Microsoft Edge…</h1>
-  <p>If nothing happens, click the button below.</p>
-  <a class="btn" href="${edgeUrl}" id="open">Open in Edge</a>
-  <p style="margin-top:2rem;font-size:0.9em;opacity:0.7">Target: ${finalTarget}</p>
+  <p>If nothing happens automatically, click the button below.</p>
+  <a class="btn" href="${edgeUrl}">Open in Edge</a>
+  <p style="margin-top:2rem;font-size:0.85em;opacity:0.65;max-width:90%;word-break:break-all">
+    Target: ${target}
+  </p>
   <script>
-    // Try to launch immediately
     window.location.href = ${JSON.stringify(edgeUrl)};
-    // Fallback: also try after a short delay
     setTimeout(function () {
       window.location.href = ${JSON.stringify(edgeUrl)};
-    }, 300);
+    }, 400);
   </script>
 </body>
 </html>`);
