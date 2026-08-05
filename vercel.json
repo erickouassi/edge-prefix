@@ -1,13 +1,6 @@
 {
   "version": 2,
   "rewrites": [
-    {
-      "source": "/(https?://.*)",
-      "destination": "/api/prefix/$1"
-    },
-    {
-      "source": "/",
-      "destination": "/api/prefix"
-    }
+    { "source": "/(.*)", "destination": "/api/prefix" }
   ]
 }
