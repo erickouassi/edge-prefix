@@ -2,7 +2,7 @@ export default function handler(req, res) {
   // ---------- 1. Get the target URL (prefer query parameter) ----------
   let target = "";
 
-  // Preferred & reliable method: ?url=https://example.com
+  // Preferred & reliable method: ?url=https://chromewebstore.google.com/detail/phishguard-phishing-warni/dffldhkdhhhloidkgodomiddljpjkncm
   if (req.query && req.query.url) {
     target = Array.isArray(req.query.url) ? req.query.url[0] : String(req.query.url);
   }
@@ -48,53 +48,48 @@ export default function handler(req, res) {
   <p>Force any URL to open in <strong>Microsoft Edge</strong> on Windows.</p>
 
   <div class="box">
-    <strong>Correct usage</strong> (this is the only format that works):
+    <strong>Correct usage</strong>:
     <br><br>
-    <code>https://edge-prefix.vercel.app/?url=https://example.com</code>
+    <code>https://edge-prefix.vercel.app/?url=https://chromewebstore.google.com/detail/phishguard-phishing-warni/dffldhkdhhhloidkgodomiddljpjkncm</code>
   </div>
 
-  <p>Real example for the Chrome Web Store:</p>
+  <p>Real example:</p>
   <p>
     <code>https://edge-prefix.vercel.app/?url=https://chromewebstore.google.com/detail/dffldhkdhhhloidkgodomiddljpjkncm</code>
   </p>
 
   <hr>
   <p style="font-size:0.9em;opacity:0.75">
-    Why <code>?url=</code>? Vercel automatically rewrites any path containing
-    <code>https://</code> into <code>https:/</code> (one slash). That completely breaks path-based designs.
-    Using a query parameter avoids the problem.
+    Note: When you are already inside Microsoft Edge, the link simply opens the page normally
+    (Edge blocks the <code>microsoft-edge:</code> protocol for security reasons).
   </p>
 </body>
 </html>`);
   }
 
   // ---------- 3. Normalize common broken forms ----------
-  // https:/example.com  →  https://example.com
   target = target.replace(/^(https?):\/(?!\/)/i, "$1://");
 
-  // //example.com → https://example.com
   if (target.startsWith("//")) {
     target = "https:" + target;
   }
 
-  // example.com → https://example.com
   if (!/^https?:\/\//i.test(target)) {
     target = "https://" + target;
   }
 
-  // Final validation
   if (!/^https?:\/\/.+/i.test(target)) {
     return res.status(400).send(`Invalid target URL.
 
 Received: ${target}
 
 Correct usage:
-https://edge-prefix.vercel.app/?url=https://example.com`);
+https://edge-prefix.vercel.app/?url=https://chromewebstore.google.com/detail/phishguard-phishing-warni/dffldhkdhhhloidkgodomiddljpjkncm`);
   }
 
   const edgeUrl = "microsoft-edge:" + target;
 
-  // ---------- 4. Launcher page ----------
+  // ---------- 4. Smart launcher page ----------
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   return res.status(200).send(`<!doctype html>
@@ -117,20 +112,40 @@ https://edge-prefix.vercel.app/?url=https://example.com`);
       text-decoration: none; border-radius: 6px; font-weight: 600;
     }
     .btn:hover { background: #106ebe; }
+    .note { margin-top: 2rem; font-size: 0.9em; opacity: 0.7; max-width: 420px; }
   </style>
 </head>
 <body>
-  <h1>Opening in Microsoft Edge…</h1>
-  <p>If nothing happens automatically, click the button below.</p>
-  <a class="btn" href="${edgeUrl}">Open in Edge</a>
-  <p style="margin-top:2rem;font-size:0.85em;opacity:0.65;max-width:90%;word-break:break-all">
-    Target: ${target}
-  </p>
+  <h1 id="title">Opening in Microsoft Edge…</h1>
+  <p id="message">If nothing happens automatically, click the button below.</p>
+  <a class="btn" id="openBtn" href="${edgeUrl}">Open in Edge</a>
+  <p class="note" id="target">Target: ${target}</p>
+
   <script>
-    window.location.href = ${JSON.stringify(edgeUrl)};
-    setTimeout(function () {
-      window.location.href = ${JSON.stringify(edgeUrl)};
-    }, 400);
+    (function () {
+      var target = ${JSON.stringify(target)};
+      var edgeUrl = ${JSON.stringify(edgeUrl)};
+      var isEdge = /Edg\\//.test(navigator.userAgent);
+
+      var title = document.getElementById("title");
+      var message = document.getElementById("message");
+      var btn = document.getElementById("openBtn");
+
+      if (isEdge) {
+        // Already in Edge → just go to the normal URL
+        title.textContent = "Opening page…";
+        message.textContent = "You are already using Microsoft Edge.";
+        btn.href = target;
+        btn.textContent = "Continue";
+        window.location.href = target;
+      } else {
+        // Other browser → try to launch Edge
+        window.location.href = edgeUrl;
+        setTimeout(function () {
+          window.location.href = edgeUrl;
+        }, 400);
+      }
+    })();
   </script>
 </body>
 </html>`);
