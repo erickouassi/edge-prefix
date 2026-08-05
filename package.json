@@ -1,0 +1,11 @@
+{
+  "name": "edge-prefix",
+  "version": "1.0.0",
+  "description": "Prefix any URL to force opening in Microsoft Edge via microsoft-edge: protocol.",
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "vercel dev"
+  },
+  "author": "Eric Kouassi",
+  "license": "MIT"
+}
