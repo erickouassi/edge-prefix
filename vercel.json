@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "routes": [
+    {
+      "src": "/(https?://.*)",
+      "dest": "/api/prefix/$1"
+    },
+    {
+      "src": "/",
+      "dest": "/api/prefix"
+    }
+  ]
+}
